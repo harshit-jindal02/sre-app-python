@@ -1,14 +1,21 @@
-from fastapi import FastAPI, Request, Form, UploadFile, File, status
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-import httpx
 import os
+import httpx
+from fastapi import FastAPI, Request, File, UploadFile
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 app = FastAPI()
 
-# For simplicity, use inline HTML (or you can use Jinja2Templates if you prefer)
-HTML = """
+# Use Jinja2Templates for proper HTML rendering
+templates = Jinja2Templates(directory="templates")
+
+# Create a templates directory and an index.html file for this to work
+# For simplicity here, we define it inline, but a separate file is best practice.
+if not os.path.exists("templates"):
+    os.makedirs("templates")
+
+with open("templates/index.html", "w") as f:
+    f.write("""
 <!DOCTYPE html>
 <html>
 <head>
@@ -28,7 +35,7 @@ HTML = """
                 {{ message }}
             </div>
         {% endif %}
-        <form id="uploadForm" method="post" enctype="multipart/form-data">
+        <form id="uploadForm" action="/" method="post" enctype="multipart/form-data">
             <div class="mb-3">
                 <input class="form-control" type="file" name="csvfile" accept=".csv" required onchange="updateFileName()">
                 <div id="fileName" class="form-text"></div>
@@ -57,11 +64,11 @@ HTML = """
     </script>
 </body>
 </html>
-"""
+""")
 
 @app.get("/", response_class=HTMLResponse)
 async def main(request: Request):
-    return HTML.replace("{% if message %}", "").replace("{% endif %}", "")
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/", response_class=HTMLResponse)
 async def upload_csv(request: Request, csvfile: UploadFile = File(...)):
@@ -70,31 +77,27 @@ async def upload_csv(request: Request, csvfile: UploadFile = File(...)):
         file_bytes = await csvfile.read()
         filename = csvfile.filename
 
-        # Get server name from environment variable
-        server = os.environ.get("NODE_SERVER", "localhost")
-        url = f"http://{server}:6000/receive"
+        # Get Node.js service host and port from environment variables
+        # These will be set by the Kubernetes deployment.yaml
+        node_host = os.environ.get("NODE_SERVICE_HOST", "localhost")
+        node_port = os.environ.get("NODE_SERVICE_PORT", "6000")
+        url = f"http://{node_host}:{node_port}/receive"
 
-        # Send file to Node.js server
         async with httpx.AsyncClient() as client:
             files = {'csvfile': (filename, file_bytes, 'text/csv')}
             response = await client.post(url, files=files)
-            if response.status_code == 200:
-                message = "File sent to Node.js server!"
-            else:
-                message = f"Failed to send file: {response.text}"
-    except Exception as e:
-        message = f"Error: {str(e)}"
+            
+            response.raise_for_status() # Raise an exception for bad status codes
+            
+            message = "File successfully processed and sent to Node.js service!"
 
-    # Render HTML with message
-    html_with_message = HTML.replace(
-        "{% if message %}", ""
-    ).replace(
-        "{% endif %}", ""
-    ).replace(
-        "{{ message }}", message
-    )
-    return HTMLResponse(content=html_with_message)
+    except httpx.HTTPStatusError as e:
+        message = f"Failed to send file to Node.js service: {e.response.status_code} - {e.response.text}"
+    except Exception as e:
+        message = f"An error occurred: {str(e)}"
+
+    return templates.TemplateResponse("index.html", {"request": request, "message": message})
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=5000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=5000)
