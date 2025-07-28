@@ -39,4 +39,4 @@ spec:
             - name: NODE_SERVICE_HOST
               value: "node-app-svc"
             - name: NODE_SERVICE_PORT
-              value: "6000"
+              value: "6002"

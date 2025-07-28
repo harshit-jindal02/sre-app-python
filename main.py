@@ -80,7 +80,7 @@ async def upload_csv(request: Request, csvfile: UploadFile = File(...)):
         # Get Node.js service host and port from environment variables
         # These will be set by the Kubernetes deployment.yaml
         node_host = os.environ.get("NODE_SERVICE_HOST", "localhost")
-        node_port = os.environ.get("NODE_SERVICE_PORT", "6000")
+        node_port = os.environ.get("NODE_SERVICE_PORT", "6002")
         url = f"http://{node_host}:{node_port}/receive"
 
         async with httpx.AsyncClient() as client:
